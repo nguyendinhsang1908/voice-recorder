@@ -16,7 +16,7 @@ jobs:
       uses: actions/checkout@v4
     
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.11'
     
@@ -30,7 +30,7 @@ jobs:
         pyinstaller --onefile --console --name "VoiceRecorder-Windows" record_dataset.py
     
     - name: Upload Windows artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: VoiceRecorder-Windows
         path: dist/VoiceRecorder-Windows.exe
@@ -43,7 +43,7 @@ jobs:
       uses: actions/checkout@v4
     
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.11'
     
@@ -226,7 +226,7 @@ jobs:
         hdiutil create -volname "VoiceRecorder" -srcfolder dist/dmg -ov -format UDZO dist/VoiceRecorder.dmg
     
     - name: Upload macOS artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: VoiceRecorder-macOS
         path: |
@@ -242,7 +242,7 @@ jobs:
       uses: actions/checkout@v4
     
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.11'
     
@@ -352,7 +352,7 @@ jobs:
         pyinstaller --onefile --console --name "VoiceRecorder-Linux.out" record_dataset_linux.py
     
     - name: Upload Linux artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: VoiceRecorder-Linux
         path: dist/VoiceRecorder-Linux.out
@@ -367,7 +367,7 @@ jobs:
       uses: actions/checkout@v4
     
     - name: Download all artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
     
     - name: Create Release
       uses: softprops/action-gh-release@v1
