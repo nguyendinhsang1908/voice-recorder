@@ -1,0 +1,400 @@
+name: Build Voice Recorder
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install sounddevice scipy numpy pygame pyinstaller
+    
+    - name: Build Windows executable
+      run: |
+        pyinstaller --onefile --console --name "VoiceRecorder-Windows" record_dataset.py
+    
+    - name: Upload Windows artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: VoiceRecorder-Windows
+        path: dist/VoiceRecorder-Windows.exe
+
+  build-macos:
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install system dependencies
+      run: |
+        brew install portaudio
+    
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install sounddevice scipy numpy pyinstaller
+    
+    - name: Create macOS version
+      run: |
+        # Create macOS-compatible version without pygame
+        cat > record_dataset_mac.py << 'EOF'
+        import os
+        import time
+        import sounddevice as sd
+        from scipy.io.wavfile import write
+        import numpy as np
+        import platform
+
+        sample_rate = 16000  # Hz
+        duration = 2.5  # seconds
+        beep_freq = 1000  # Hz
+        beep_duration = 0.2  # seconds
+        dir_path = "recorded_wav_dataset"
+
+        def play_beep():
+            try:
+                print("Playing beep...")
+                t = np.linspace(0, beep_duration, int(sample_rate * beep_duration), False)
+                beep = np.sin(beep_freq * 2 * np.pi * t) * 0.3
+                sd.play(beep, sample_rate)
+                sd.wait()
+                print("Beep finished")
+            except Exception as e:
+                print(f"Error playing beep: {e}")
+
+        def create_directories(dir_file):
+            try:
+                os.makedirs(f"{dir_path}/{dir_file[0]}/{dir_file[1]}/{dir_file[2]}/{dir_file[3]}", exist_ok=True)
+            except Exception as e:
+                print(f"Error creating directories: {e}")
+                return False
+            return True
+
+        def writefile(filename, sample_rate, recording):
+            try:
+                write(filename, sample_rate, recording)
+            except Exception as e:
+                print(f"Error saving file {filename}: {e}")
+                return False
+            return True
+
+        def record_sample(dir_file, index):
+            print(f"[{index+1}/20] Speak now:")
+            play_beep()
+            recording = sd.rec(int(duration * sample_rate), samplerate=sample_rate, channels=1, dtype='int16')
+            sd.wait()  
+            filename = f"{dir_path}/{dir_file[0]}/{dir_file[1]}/{dir_file[2]}/{dir_file[3]}/{dir_file[4]}_{index:02d}.wav"
+            writefile(filename, sample_rate, recording)
+            print(f"Saved: {filename}\n")
+            return True
+
+        def check_permissions():
+            if platform.system() == 'Darwin':  # macOS
+                print("Checking microphone permissions...")
+                try:
+                    test_rec = sd.rec(1, samplerate=sample_rate, channels=1, dtype='int16')
+                    sd.wait()
+                    print("Microphone access granted")
+                except Exception as e:
+                    print(f"Microphone permission needed: {e}")
+                    print("Please grant microphone access in System Preferences > Security & Privacy > Privacy > Microphone")
+                    return False
+            return True
+
+        def main():
+            print(f"Voice Recorder - Running on {platform.system()}")
+            print("=" * 40)
+            
+            if not check_permissions():
+                return
+            
+            print("Available audio devices:")
+            print(sd.query_devices())
+            print()
+
+            input_dir = input("Enter voice command (e.g., bat_den/bac/nam/3/sang): ").strip().split('/')
+            if len(input_dir) != 5:
+                print("Input directory format is not correct, please try again")
+                return
+            
+            create_directories(input_dir)
+            
+            for i in range(20):
+                success = record_sample(input_dir, i)
+                if not success:
+                    print("Recording failed, stopping...")
+                    break
+
+            print("Done recording!")
+
+        if __name__ == "__main__":
+            main()
+        EOF
+    
+    - name: Build macOS executable
+      run: |
+        pyinstaller --onefile --console --name "VoiceRecorder-macOS" record_dataset_mac.py
+    
+    - name: Create macOS app bundle
+      run: |
+        # Create .spec file for app bundle
+        cat > VoiceRecorder.spec << 'EOF'
+        # -*- mode: python ; coding: utf-8 -*-
+
+        block_cipher = None
+
+        a = Analysis(
+            ['record_dataset_mac.py'],
+            pathex=[],
+            binaries=[],
+            datas=[],
+            hiddenimports=['sounddevice', 'scipy.io.wavfile', 'numpy'],
+            hookspath=[],
+            hooksconfig={},
+            runtime_hooks=[],
+            excludes=[],
+            win_no_prefer_redirects=False,
+            win_private_assemblies=False,
+            cipher=block_cipher,
+            noarchive=False,
+        )
+
+        pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+
+        exe = EXE(
+            pyz,
+            a.scripts,
+            a.binaries,
+            a.zipfiles,
+            a.datas,
+            [],
+            name='VoiceRecorder',
+            debug=False,
+            bootloader_ignore_signals=False,
+            strip=False,
+            upx=True,
+            upx_exclude=[],
+            runtime_tmpdir=None,
+            console=True,
+            disable_windowed_traceback=False,
+            argv_emulation=False,
+            target_arch=None,
+            codesign_identity=None,
+            entitlements_file=None,
+        )
+
+        app = BUNDLE(
+            exe,
+            name='VoiceRecorder.app',
+            icon=None,
+            bundle_identifier='com.yourname.voicerecorder',
+            info_plist={
+                'NSMicrophoneUsageDescription': 'This app needs microphone access to record voice commands.',
+                'NSHighResolutionCapable': 'True'
+            },
+        )
+        EOF
+        
+        pyinstaller VoiceRecorder.spec
+    
+    - name: Create DMG
+      run: |
+        mkdir -p dist/dmg
+        cp -r dist/VoiceRecorder.app dist/dmg/
+        hdiutil create -volname "VoiceRecorder" -srcfolder dist/dmg -ov -format UDZO dist/VoiceRecorder.dmg
+    
+    - name: Upload macOS artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: VoiceRecorder-macOS
+        path: |
+          dist/VoiceRecorder-macOS
+          dist/VoiceRecorder.app
+          dist/VoiceRecorder.dmg
+
+  build-linux:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y portaudio19-dev python3-pyaudio
+    
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install sounddevice scipy numpy pyinstaller
+    
+    - name: Create Linux version
+      run: |
+        # Create Linux-compatible version without pygame
+        cat > record_dataset_linux.py << 'EOF'
+        import os
+        import time
+        import sounddevice as sd
+        from scipy.io.wavfile import write
+        import numpy as np
+        import platform
+
+        sample_rate = 16000  # Hz
+        duration = 2.5  # seconds
+        beep_freq = 1000  # Hz
+        beep_duration = 0.2  # seconds
+        dir_path = "recorded_wav_dataset"
+
+        def play_beep():
+            try:
+                print("Playing beep...")
+                t = np.linspace(0, beep_duration, int(sample_rate * beep_duration), False)
+                beep = np.sin(beep_freq * 2 * np.pi * t) * 0.3
+                sd.play(beep, sample_rate)
+                sd.wait()
+                print("Beep finished")
+            except Exception as e:
+                print(f"Error playing beep: {e}")
+
+        def create_directories(dir_file):
+            try:
+                os.makedirs(f"{dir_path}/{dir_file[0]}/{dir_file[1]}/{dir_file[2]}/{dir_file[3]}", exist_ok=True)
+            except Exception as e:
+                print(f"Error creating directories: {e}")
+                return False
+            return True
+
+        def writefile(filename, sample_rate, recording):
+            try:
+                write(filename, sample_rate, recording)
+            except Exception as e:
+                print(f"Error saving file {filename}: {e}")
+                return False
+            return True
+
+        def record_sample(dir_file, index):
+            print(f"[{index+1}/20] Speak now:")
+            play_beep()
+            recording = sd.rec(int(duration * sample_rate), samplerate=sample_rate, channels=1, dtype='int16')
+            sd.wait()  
+            filename = f"{dir_path}/{dir_file[0]}/{dir_file[1]}/{dir_file[2]}/{dir_file[3]}/{dir_file[4]}_{index:02d}.wav"
+            writefile(filename, sample_rate, recording)
+            print(f"Saved: {filename}\n")
+            return True
+
+        def check_audio_system():
+            try:
+                print("Checking audio system...")
+                devices = sd.query_devices()
+                print("Available audio devices:")
+                print(devices)
+                return True
+            except Exception as e:
+                print(f"Audio system error: {e}")
+                return False
+
+        def main():
+            print(f"Voice Recorder - Running on {platform.system()}")
+            print("=" * 40)
+            
+            if not check_audio_system():
+                return
+            
+            input_dir = input("\nEnter voice command (e.g., bat_den/bac/nam/3/sang): ").strip().split('/')
+            if len(input_dir) != 5:
+                print("Input directory format is not correct, please try again")
+                return
+            
+            create_directories(input_dir)
+            
+            for i in range(20):
+                success = record_sample(input_dir, i)
+                if not success:
+                    print("Recording failed, stopping...")
+                    break
+
+            print("Done recording!")
+
+        if __name__ == "__main__":
+            main()
+        EOF
+    
+    - name: Build Linux executable
+      run: |
+        pyinstaller --onefile --console --name "VoiceRecorder-Linux.out" record_dataset_linux.py
+    
+    - name: Upload Linux artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: VoiceRecorder-Linux
+        path: dist/VoiceRecorder-Linux.out
+
+  create-release:
+    needs: [build-windows, build-macos, build-linux]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Download all artifacts
+      uses: actions/download-artifact@v3
+    
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          VoiceRecorder-Windows/VoiceRecorder-Windows.exe
+          VoiceRecorder-macOS/VoiceRecorder-macOS
+          VoiceRecorder-macOS/VoiceRecorder.dmg
+          VoiceRecorder-Linux/VoiceRecorder-Linux.out
+        body: |
+          # Voice Recorder Release
+          
+          ## Downloads:
+          - **Windows**: VoiceRecorder-Windows.exe
+          - **macOS**: VoiceRecorder.dmg (drag to Applications)
+          - **Linux**: VoiceRecorder-Linux.out (make executable: `chmod +x VoiceRecorder-Linux.out`)
+          
+          ## Usage:
+          1. Run the executable
+          2. Enter command in format: `bat_den/bac/nam/3/sang`
+          3. Speak when prompted (after beep)
+          4. 20 recordings will be saved automatically
+          
+          ## Permissions:
+          - **macOS**: Grant microphone access in System Preferences
+          - **Linux**: Ensure audio system is working
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
